@@ -27,6 +27,16 @@ use usb_device::prelude::*;
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
 use stm32f1xx_hal::i2c::{BlockingI2c, DutyCycle, Mode};
+
+use embedded_graphics::{
+    mono_font::{MonoTextStyleBuilder, ascii::FONT_6X10},
+    pixelcolor::BinaryColor,
+    prelude::*,
+    text::{Baseline, Text},
+};
+
+use ssd1306::{I2CDisplayInterface, Ssd1306, prelude::*};
+
 mod mcp9600 {
     use embedded_hal::i2c::I2c;
 
@@ -151,6 +161,47 @@ fn main() -> ! {
 
     let devid = mcp.read_device_id();
     hprintln!("device id: {:?}", devid);
+
+    // And the lcd;
+    //
+
+    let scl = gpiob.pb10;
+    let sda = gpiob.pb11;
+
+    let i2c2 = dp
+        .I2C2
+        //.remap(&mut afio.mapr) // add this if want to use PB8, PB9 instead
+        .blocking_i2c(
+            (scl, sda),
+            Mode::Fast {
+                frequency: 400.kHz(),
+                duty_cycle: DutyCycle::Ratio16to9,
+            },
+            &mut rcc,
+            1000,
+            10,
+            1000,
+            1000,
+        );
+    let interface = I2CDisplayInterface::new(i2c2);
+    let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
+        .into_buffered_graphics_mode();
+    display.init().unwrap();
+
+    let text_style = MonoTextStyleBuilder::new()
+        .font(&FONT_6X10)
+        .text_color(BinaryColor::On)
+        .build();
+
+    Text::with_baseline("Hello world!", Point::zero(), text_style, Baseline::Top)
+        .draw(&mut display)
+        .unwrap();
+
+    Text::with_baseline("Hello Rust!", Point::new(0, 16), text_style, Baseline::Top)
+        .draw(&mut display)
+        .unwrap();
+
+    display.flush().unwrap();
 
     loop {
         if !usb_dev.poll(&mut [&mut serial]) {
