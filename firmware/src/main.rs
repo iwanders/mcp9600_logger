@@ -14,6 +14,7 @@
 
 use panic_halt as _;
 
+use cortex_m_semihosting::hprintln;
 use nb::block;
 
 use cortex_m::asm::delay;
@@ -25,6 +26,7 @@ use stm32f1xx_hal::usb::{Peripheral, UsbBus};
 use usb_device::prelude::*;
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
+use stm32f1xx_hal::i2c::{BlockingI2c, DutyCycle, Mode};
 mod mcp9600 {
     use embedded_hal::i2c::I2c;
 
@@ -63,30 +65,29 @@ fn main() -> ! {
     // Freeze the configuration of all the clocks in the system and store the frozen frequencies in
     // `clocks`
     // Set a real clock that allows usb.
-    let clocks = rcc
-        .cfgr
-        .use_hse(8.MHz())
-        .sysclk(48.MHz())
-        .pclk1(24.MHz())
-        .freeze(&mut flash.acr);
+
+    let mut rcc = rcc.freeze(
+        rcc::Config::hse(8.MHz()).sysclk(48.MHz()).pclk1(24.MHz()),
+        &mut flash.acr,
+    );
+
+    assert!(rcc.clocks.usbclk_valid());
 
     // Acquire the GPIOC peripheral
-    let mut gpioc = dp.GPIOC.split();
+    let mut gpioc = dp.GPIOC.split(&mut rcc);
     // Configure gpio C pin 13 as a push-pull output. The `crh` register is passed to the function
     // in order to configure the port. For pins 0-7, crl should be passed instead.
     let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
     // Configure the syst timer to trigger an update every second
     /**/
-    let mut timer = Timer::syst(cp.SYST, &clocks).counter_hz();
+    let mut timer = Timer::syst(cp.SYST, &rcc.clocks).counter_hz();
     timer.start(10.Hz()).unwrap();
 
     // Wait for the timer to trigger an update and change the state of the LED
 
-    assert!(clocks.usbclk_valid());
-
     //---
     //
-    let mut gpioa = dp.GPIOA.split();
+    let mut gpioa = dp.GPIOA.split(&mut rcc);
 
     // BluePill board has a pull-up resistor on the D+ line.
     // Pull the D+ pin down to send a RESET condition to the USB bus.
@@ -94,7 +95,7 @@ fn main() -> ! {
     // will not reset your device when you upload new firmware.
     let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
     usb_dp.set_low();
-    delay(clocks.sysclk().raw() / 100);
+    delay(rcc.clocks.sysclk().raw() / 100);
 
     let usb = Peripheral {
         usb: dp.USB,
@@ -107,13 +108,39 @@ fn main() -> ! {
     // ---
 
     let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
-        .manufacturer("Fake company")
-        .product("Serial port")
-        .serial_number("TEST")
         .device_class(USB_CLASS_CDC)
+        .strings(&[StringDescriptors::default()
+            .manufacturer("Fake Company")
+            .product("Serial port")
+            .serial_number("TEST")])
+        .unwrap()
         .build();
 
     led.set_high();
+
+    // Acquire the GPIOB peripheral
+    let mut gpiob = dp.GPIOB.split(&mut rcc);
+    let mut afio = dp.AFIO.constrain(&mut rcc);
+
+    let scl = gpiob.pb6;
+    let sda = gpiob.pb7;
+
+    let i2c = dp
+        .I2C1
+        .remap(&mut afio.mapr) // add this if want to use PB8, PB9 instead
+        .blocking_i2c(
+            (scl, sda),
+            Mode::Fast {
+                frequency: 400.kHz(),
+                duty_cycle: DutyCycle::Ratio16to9,
+            },
+            &mut rcc,
+            1000,
+            10,
+            1000,
+            1000,
+        );
+
     loop {
         if !usb_dev.poll(&mut [&mut serial]) {
             continue;
@@ -125,7 +152,7 @@ fn main() -> ! {
         match serial.read(&mut buf) {
             Ok(count) if count > 0 => {
                 led.set_low(); // Turn on
-
+                hprintln!("got data");
                 // Echo back in upper case
                 for c in buf[0..count].iter_mut() {
                     if 0x61 <= *c && *c <= 0x7a {

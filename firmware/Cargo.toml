@@ -11,18 +11,22 @@ cortex-m-rt = "0.7.3"
 # Panic behaviour, see https://crates.io/keywords/panic-impl for alternatives
 panic-halt = "0.2.0"
 
-#usb-device = "0.3.2"
-#usbd-serial = "0.2.2"
-usb-device = "0.2.8"
-usbd-serial = "0.1.1"
+usb-device = "0.3.2"
+usbd-serial = "0.2.2"
+#usb-device = "0.2.8"
+#usbd-serial = "0.1.1"
 
+cortex-m-semihosting = "0.5.0"
 [dependencies.cortex-m]
 version = "0.7.7"
 #features = ["cm7-r0p1"]
 
 [dependencies.stm32f1xx-hal]
-version = "0.10.0"
-features = ["rt", "stm32f103", "medium", "stm32-usbd"]
+#version = "0.10.0"
+# Using master, because that seems to be close to embedded-hal v 1.0
+git = "https://github.com/stm32-rs/stm32f1xx-hal"
+rev = "d6d19c626d0bf7d1be5f76175d7f2facd94cc0c1"
+features = ["stm32f103", "medium", "stm32-usbd"]
 
 [profile.dev]
 incremental = false
