@@ -31,9 +31,9 @@ use stm32f1xx_hal::{
 
 use usb_device::prelude::*;
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
-/*
+
 mod mcp9600 {
-    use embedded_hal::blocking::i2c::I2c;
+    use embedded_hal::i2c::I2c;
 
     const ADAFRUIT_MCP9600_ADDR: u8 = 0x67;
     pub struct TemperatureSensorDriver<I2C> {
@@ -54,7 +54,6 @@ mod mcp9600 {
         }
     }
 }
-*/
 
 use stm32f1xx_hal::usb::{Peripheral, UsbBus, UsbBusType};
 use usb_device::bus::UsbBusAllocator;
