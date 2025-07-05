@@ -29,7 +29,7 @@ use usbd_serial::{SerialPort, USB_CLASS_CDC};
 use stm32f1xx_hal::i2c::{BlockingI2c, DutyCycle, Mode};
 
 use embedded_graphics::{
-    mono_font::{MonoTextStyleBuilder, ascii::FONT_6X10},
+    mono_font::{MonoTextStyleBuilder, ascii::FONT_6X10, ascii::FONT_9X15},
     pixelcolor::BinaryColor,
     prelude::*,
     text::{Baseline, Text},
@@ -56,7 +56,7 @@ mod mcp9600 {
             let mut tmp = [0u8, 0u8];
             self.i2c
                 .write_read(self.address as u8, &[0b00100000], &mut tmp)?;
-            Ok(tmp[1])
+            Ok(tmp[0])
         }
     }
 }
@@ -82,7 +82,7 @@ fn main() -> ! {
     // Set a real clock that allows usb.
 
     let mut rcc = rcc.freeze(
-        rcc::Config::hse(8.MHz()).sysclk(48.MHz()).pclk1(6.MHz()),
+        rcc::Config::hse(8.MHz()).sysclk(48.MHz()).pclk1(24.MHz()),
         &mut flash.acr,
     );
 
@@ -193,13 +193,23 @@ fn main() -> ! {
         .text_color(BinaryColor::On)
         .build();
 
+    let text_style_big = MonoTextStyleBuilder::new()
+        .font(&FONT_9X15)
+        .text_color(BinaryColor::On)
+        .build();
+
     Text::with_baseline("Hello world!", Point::zero(), text_style, Baseline::Top)
         .draw(&mut display)
         .unwrap();
 
-    Text::with_baseline("Hello Rust!", Point::new(0, 16), text_style, Baseline::Top)
-        .draw(&mut display)
-        .unwrap();
+    Text::with_baseline(
+        "Hello Rust!",
+        Point::new(0, 16),
+        text_style_big,
+        Baseline::Top,
+    )
+    .draw(&mut display)
+    .unwrap();
 
     display.flush().unwrap();
 
