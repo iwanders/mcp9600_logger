@@ -30,7 +30,8 @@ use stm32f1xx_hal::i2c::{BlockingI2c, DutyCycle, Mode};
 mod mcp9600 {
     use embedded_hal::i2c::I2c;
 
-    const ADAFRUIT_MCP9600_ADDR: u8 = 0x67;
+    pub const ADAFRUIT_MCP9600_ADDR: u8 = 0x67;
+    //pub const ADAFRUIT_MCP9600_ADDR: u8 = 0x60;
     pub struct TemperatureSensorDriver<I2C> {
         i2c: I2C,
         address: u8,
@@ -44,7 +45,7 @@ mod mcp9600 {
         pub fn read_device_id(&mut self) -> Result<u8, I2C::Error> {
             let mut tmp = [0u8, 0u8];
             self.i2c
-                .write_read(self.address as u8, &[0b0010_0000], &mut tmp)?;
+                .write_read(self.address as u8, &[0b00100000], &mut tmp)?;
             Ok(tmp[1])
         }
     }
@@ -53,9 +54,13 @@ mod mcp9600 {
 #[entry]
 fn main() -> ! {
     // Get access to the core peripherals from the cortex-m crate
-    let cp = cortex_m::Peripherals::take().unwrap();
+    let mut cp = cortex_m::Peripherals::take().unwrap();
     // Get access to the device specific peripherals from the peripheral access crate
     let dp = pac::Peripherals::take().unwrap();
+
+    //let mut cortex_peripherals = cortex_m::Peripherals::take().unwrap();
+
+    cp.DWT.enable_cycle_counter();
 
     // Take ownership over the raw flash and rcc devices and convert them into the corresponding
     // HAL structs
@@ -67,7 +72,7 @@ fn main() -> ! {
     // Set a real clock that allows usb.
 
     let mut rcc = rcc.freeze(
-        rcc::Config::hse(8.MHz()).sysclk(48.MHz()).pclk1(24.MHz()),
+        rcc::Config::hse(8.MHz()).sysclk(48.MHz()).pclk1(6.MHz()),
         &mut flash.acr,
     );
 
@@ -118,21 +123,21 @@ fn main() -> ! {
 
     led.set_high();
 
-    // Acquire the GPIOB peripheral
-    let mut gpiob = dp.GPIOB.split(&mut rcc);
     let mut afio = dp.AFIO.constrain(&mut rcc);
+    // Acquire the GPIOB peripheral
+    let gpiob = dp.GPIOB.split(&mut rcc);
 
-    let scl = gpiob.pb6;
-    let sda = gpiob.pb7;
+    let scl = gpiob.pb8;
+    let sda = gpiob.pb9;
 
     let i2c = dp
         .I2C1
         .remap(&mut afio.mapr) // add this if want to use PB8, PB9 instead
         .blocking_i2c(
             (scl, sda),
-            Mode::Fast {
-                frequency: 400.kHz(),
-                duty_cycle: DutyCycle::Ratio16to9,
+            Mode::Standard {
+                frequency: 100.kHz(),
+                //duty_cycle: DutyCycle::Ratio16to9,
             },
             &mut rcc,
             1000,
@@ -140,6 +145,12 @@ fn main() -> ! {
             1000,
             1000,
         );
+    delay(rcc.clocks.sysclk().raw() / 100);
+
+    let mut mcp = mcp9600::TemperatureSensorDriver::new(i2c, mcp9600::ADAFRUIT_MCP9600_ADDR);
+
+    let devid = mcp.read_device_id();
+    hprintln!("device id: {:?}", devid);
 
     loop {
         if !usb_dev.poll(&mut [&mut serial]) {
