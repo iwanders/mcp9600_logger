@@ -8,26 +8,19 @@
 // MCP9600; Default I2C address is 0x67.
 // Following the Start condition, the host must transmit an
 // 8-bit address byte to the MCP960X/L0X/RL0X
-
+#![deny(unsafe_code)]
 #![no_std]
 #![no_main]
-#![allow(static_mut_refs)]
 
 use panic_halt as _;
 
 use nb::block;
 
-use cortex_m::asm::{delay, wfi};
+use cortex_m::asm::delay;
 use cortex_m_rt::entry;
-use stm32f1xx_hal::{
-    pac,
-    pac::{Interrupt, NVIC, interrupt},
-    prelude::*,
-    rcc,
-    timer::Timer,
-};
+use stm32f1xx_hal::{pac, prelude::*, rcc, timer::Timer};
 
-//use stm32f1xx_hal::usb::{Peripheral, UsbBus};
+use stm32f1xx_hal::usb::{Peripheral, UsbBus};
 
 use usb_device::prelude::*;
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
@@ -54,12 +47,6 @@ mod mcp9600 {
         }
     }
 }
-
-use stm32f1xx_hal::usb::{Peripheral, UsbBus, UsbBusType};
-use usb_device::bus::UsbBusAllocator;
-static mut USB_BUS: Option<UsbBusAllocator<UsbBusType>> = None;
-static mut USB_SERIAL: Option<usbd_serial::SerialPort<UsbBusType>> = None;
-static mut USB_DEVICE: Option<UsbDevice<UsbBusType>> = None;
 
 #[entry]
 fn main() -> ! {
@@ -96,6 +83,9 @@ fn main() -> ! {
     // Wait for the timer to trigger an update and change the state of the LED
 
     assert!(clocks.usbclk_valid());
+
+    //---
+    //
     let mut gpioa = dp.GPIOA.split();
 
     // BluePill board has a pull-up resistor on the D+ line.
@@ -106,77 +96,56 @@ fn main() -> ! {
     usb_dp.set_low();
     delay(clocks.sysclk().raw() / 100);
 
-    let usb_dm = gpioa.pa11;
-    let usb_dp = usb_dp.into_floating_input(&mut gpioa.crh);
-
     let usb = Peripheral {
         usb: dp.USB,
-        pin_dm: usb_dm,
-        pin_dp: usb_dp,
+        pin_dm: gpioa.pa11,
+        pin_dp: usb_dp.into_floating_input(&mut gpioa.crh),
     };
+    let usb_bus = UsbBus::new(usb);
 
-    // Unsafe to allow access to static variables
-    unsafe {
-        let bus = UsbBus::new(usb);
+    let mut serial = SerialPort::new(&usb_bus);
+    // ---
 
-        USB_BUS = Some(bus);
+    let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
+        .manufacturer("Fake company")
+        .product("Serial port")
+        .serial_number("TEST")
+        .device_class(USB_CLASS_CDC)
+        .build();
 
-        USB_SERIAL = Some(SerialPort::new(USB_BUS.as_ref().unwrap()));
-
-        let usb_dev = UsbDeviceBuilder::new(USB_BUS.as_ref().unwrap(), UsbVidPid(0x16c0, 0x27dd))
-            .manufacturer("Fake company")
-            .product("Serial port")
-            .serial_number("TEST")
-            .device_class(USB_CLASS_CDC)
-            .build();
-
-        USB_DEVICE = Some(usb_dev);
-    }
-
-    unsafe {
-        NVIC::unmask(Interrupt::USB_HP_CAN_TX);
-        NVIC::unmask(Interrupt::USB_LP_CAN_RX0);
-    }
-
+    led.set_high();
     loop {
-        block!(timer.wait()).unwrap();
-        led.set_high();
-        block!(timer.wait()).unwrap();
-        led.set_low();
-    }
-}
+        if !usb_dev.poll(&mut [&mut serial]) {
+            continue;
+        }
+        led.set_low(); // Turn on
 
-#[interrupt]
-fn USB_HP_CAN_TX() {
-    usb_interrupt();
-}
+        let mut buf = [0u8; 64];
 
-#[interrupt]
-fn USB_LP_CAN_RX0() {
-    usb_interrupt();
-}
+        match serial.read(&mut buf) {
+            Ok(count) if count > 0 => {
+                led.set_low(); // Turn on
 
-fn usb_interrupt() {
-    let usb_dev = unsafe { USB_DEVICE.as_mut().unwrap() };
-    let serial = unsafe { USB_SERIAL.as_mut().unwrap() };
+                // Echo back in upper case
+                for c in buf[0..count].iter_mut() {
+                    if 0x61 <= *c && *c <= 0x7a {
+                        *c &= !0x20;
+                    }
+                }
 
-    if !usb_dev.poll(&mut [serial]) {
-        return;
-    }
-
-    let mut buf = [0u8; 8];
-
-    match serial.read(&mut buf) {
-        Ok(count) if count > 0 => {
-            // Echo back in upper case
-            for c in buf[0..count].iter_mut() {
-                if 0x61 <= *c && *c <= 0x7a {
-                    *c &= !0x20;
+                let mut write_offset = 0;
+                while write_offset < count {
+                    match serial.write(&buf[write_offset..count]) {
+                        Ok(len) if len > 0 => {
+                            write_offset += len;
+                        }
+                        _ => {}
+                    }
                 }
             }
-
-            serial.write(&buf[0..count]).ok();
+            _ => {}
         }
-        _ => {}
+
+        led.set_high(); // Turn off
     }
 }
