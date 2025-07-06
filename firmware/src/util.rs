@@ -12,10 +12,10 @@ pub struct StackString {
 }
 impl StackString {
     pub const STACK_STRING_SIZE: usize = STACK_STRING_SIZE;
-    fn as_ptr(&self) -> *const u8 {
+    pub fn as_ptr(&self) -> *const u8 {
         self.buffer.as_ptr() as *const u8
     }
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.size
     }
     pub fn as_slice(&self) -> &[u8] {
@@ -72,7 +72,14 @@ macro_rules! sprintln {
       let mut v: crate::util::StackString = Default::default();
       core::fmt::write(&mut v, format_args!($($arg)*)).expect("Error occurred while trying to write in String");
       v.write_str("\n").expect("Shouldn't fail");
-      $serial.write(v.as_slice()).unwrap();
+      // Write, and then drop the result, such that we don't panic if nothing is consuming data from the port.
+      match $serial.write(v.as_slice()){
+        Ok(_count) => {
+            // count bytes were written
+        },
+        Err(UsbError::WouldBlock) => {},// No data could be written (buffers full)
+        Err(_err) => {},// An error occurred
+      }
   })
 
 }

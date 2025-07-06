@@ -88,7 +88,7 @@ mod tests {
         GLOBAL_MS.store(v, core::sync::atomic::Ordering::Release);
     }
     #[test]
-    fn test_elapsedMillis() {
+    fn test_elapsed_millis() {
         let mut l = ElapsedMillis::new();
         set_clock(100);
         assert!(l.elapsed() == 100);

@@ -16,11 +16,9 @@
 use panic_halt as _;
 
 use cortex_m_semihosting::hprintln;
-use nb::block;
 
 use cortex_m::asm::delay;
-use stm32f1xx_hal::pac::otg_fs_device::dvbusdis::VBUSDT_R;
-use stm32f1xx_hal::timer::{SysCounter, SysCounterUs};
+
 use stm32f1xx_hal::{pac, prelude::*, rcc, timer::Timer};
 
 use stm32f1xx_hal::usb::{Peripheral, UsbBus};
@@ -42,6 +40,7 @@ use ssd1306::{I2CDisplayInterface, Ssd1306, prelude::*};
 pub mod clock;
 pub mod mcp9600;
 pub mod util;
+use clock::ElapsedMillis;
 
 pub fn main() -> ! {
     // Get access to the core peripherals from the cortex-m crate
@@ -80,6 +79,7 @@ pub fn main() -> ! {
     timer.start(stm32f1xx_hal::time::us(100)).unwrap();
 
     clock::setup_ms_clock(dp.TIM2, &mut rcc);
+    let mut led_elapsed = ElapsedMillis::new();
 
     //---
     //
@@ -93,6 +93,7 @@ pub fn main() -> ! {
     usb_dp.set_low();
     delay(rcc.clocks.sysclk().raw() / 100);
 
+    // Setup USB and CDC serial port.
     let usb = Peripheral {
         usb: dp.USB,
         pin_dm: gpioa.pa11,
@@ -192,7 +193,20 @@ pub fn main() -> ! {
     display.flush().unwrap();
 
     loop {
-        //hprintln!("hj: {:?}", mcp.read_hot_junction());
+        if led_elapsed >= stm32f1xx_hal::time::ms(50) {
+            //sprintln!(serial, "{:?}, {}", led_elapsed, clock::millis());
+            let s = mcp.read_status();
+            if let Ok(v) = s {
+                sprintln!(serial, "{}, {:?}", clock::millis(), v.conversion_complete);
+                if v.conversion_complete {
+                    mcp.clear_status();
+                }
+            }
+            led_elapsed.reset();
+            led.toggle();
+        }
+
+        // This returns true if the serial port has data available for reading.
         if !usb_dev.poll(&mut [&mut serial]) {
             continue;
         }
@@ -203,7 +217,7 @@ pub fn main() -> ! {
             Ok(count) if count > 0 => {
                 use crate::sprintln;
                 sprintln!(serial, "{}", clock::millis());
-                led.toggle();
+                //led.toggle();
                 //led.set_low(); // Turn on
                 // Echo back in upper case
                 for c in buf[0..count].iter_mut() {
