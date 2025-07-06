@@ -39,6 +39,7 @@ use embedded_graphics::{
 
 use ssd1306::{I2CDisplayInterface, Ssd1306, prelude::*};
 
+pub mod clock;
 pub mod mcp9600;
 pub mod util;
 
@@ -78,19 +79,7 @@ pub fn main() -> ! {
     let mut timer = Timer::syst(cp.SYST, &rcc.clocks).counter_us();
     timer.start(stm32f1xx_hal::time::us(100)).unwrap();
 
-    // counter_ms: Can wait from 2 ms to 65 sec for 16-bit timer
-    // counter_us: Can wait from 2 μs to 65 ms for 16-bit timer
-    // Start something to keep time.
-    let mut my_timer = dp.TIM2.counter_us(&mut rcc);
-
-    // We can't update the clock difference each cycle, as that rounds the millis to zero.
-    let lights_time_update_interval = stm32f1xx_hal::time::ms(10);
-    // Setup the timer with a timer period to wrap around.
-    let timer_period = 64.millis();
-    my_timer.start(timer_period).unwrap();
-    // Keep track of the old time.
-    let mut old = my_timer.now();
-    // Wait for the timer to trigger an update and change the state of the LED
+    clock::setup_ms_clock(dp.TIM2, &mut rcc);
 
     //---
     //
@@ -202,31 +191,10 @@ pub fn main() -> ! {
 
     display.flush().unwrap();
 
-    let mut led_toggle_counter: _ = stm32f1xx_hal::time::MicroSeconds::from_ticks(0);
     loop {
         //hprintln!("hj: {:?}", mcp.read_hot_junction());
         if !usb_dev.poll(&mut [&mut serial]) {
             continue;
-        }
-
-        // This uses the timer to update the clock in the lights object every timer interval
-        // it gracefully handles wrap around of the timer as it resets.
-        let current = my_timer.now();
-        let diff = stm32f1xx_hal::time::MicroSeconds::from_ticks(
-            (((current.ticks() as i64 - old.ticks() as i64) + timer_period.ticks() as i64)
-                % timer_period.ticks() as i64) as u32,
-        );
-
-        // Finally, if the lights time update interval has passed, update the time for the lights.
-        // This is only done periodically to avoid the difference rounding to zero.
-        if diff > lights_time_update_interval {
-            old = current;
-            led_toggle_counter = led_toggle_counter + diff;
-        }
-        // Toggle the builtin led to indicate we lock up or panic.
-        if led_toggle_counter > stm32f1xx_hal::time::ms(50) {
-            led_toggle_counter = stm32f1xx_hal::time::MicroSeconds::from_ticks(0);
-            led.toggle();
         }
 
         let mut buf = [0u8; 64];
@@ -234,7 +202,7 @@ pub fn main() -> ! {
         match serial.read(&mut buf) {
             Ok(count) if count > 0 => {
                 use crate::sprintln;
-                sprintln!(serial, "{}, {}", my_timer.now(), timer.now());
+                sprintln!(serial, "{}", clock::millis());
                 led.toggle();
                 //led.set_low(); // Turn on
                 // Echo back in upper case
