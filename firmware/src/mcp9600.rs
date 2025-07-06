@@ -1,4 +1,4 @@
-use cortex_m_semihosting::hprintln;
+//use cortex_m_semihosting::hprintln;
 use embedded_hal::i2c::I2c;
 
 pub const ADAFRUIT_MCP9600_ADDR: u8 = 0x67;

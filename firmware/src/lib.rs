@@ -19,6 +19,8 @@ use cortex_m_semihosting::hprintln;
 use nb::block;
 
 use cortex_m::asm::delay;
+use stm32f1xx_hal::pac::otg_fs_device::dvbusdis::VBUSDT_R;
+use stm32f1xx_hal::timer::{SysCounter, SysCounterUs};
 use stm32f1xx_hal::{pac, prelude::*, rcc, timer::Timer};
 
 use stm32f1xx_hal::usb::{Peripheral, UsbBus};
@@ -68,11 +70,24 @@ pub fn main() -> ! {
     // Configure gpio C pin 13 as a push-pull output. The `crh` register is passed to the function
     // in order to configure the port. For pins 0-7, crl should be passed instead.
     let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
+    led.set_high();
+    loop {}
     // Configure the syst timer to trigger an update every second
     /**/
-    let mut timer = Timer::syst(cp.SYST, &rcc.clocks).counter_hz();
-    timer.start(10.Hz()).unwrap();
+    let timer = Timer::syst(cp.SYST, &rcc.clocks).counter_us();
 
+    // counter_ms: Can wait from 2 ms to 65 sec for 16-bit timer
+    // counter_us: Can wait from 2 μs to 65 ms for 16-bit timer
+    // Start something to keep time.
+    let mut my_timer = dp.TIM2.counter_us(&mut rcc);
+
+    // We can't update the clock difference each cycle, as that rounds the millis to zero.
+    let lights_time_update_interval = stm32f1xx_hal::time::ms(10);
+    // Setup the timer with a timer period to wrap around.
+    let timer_period = 64.millis();
+    my_timer.start(timer_period).unwrap();
+    // Keep track of the old time.
+    let mut old = my_timer.now();
     // Wait for the timer to trigger an update and change the state of the LED
 
     //---
@@ -195,12 +210,32 @@ pub fn main() -> ! {
 
     display.flush().unwrap();
 
+    let mut led_toggle_counter: _ = stm32f1xx_hal::time::MicroSeconds::from_ticks(0);
     loop {
         //hprintln!("hj: {:?}", mcp.read_hot_junction());
         if !usb_dev.poll(&mut [&mut serial]) {
             continue;
         }
-        led.set_low(); // Turn on
+
+        // This uses the timer to update the clock in the lights object every timer interval
+        // it gracefully handles wrap around of the timer as it resets.
+        let current = my_timer.now();
+        let diff = stm32f1xx_hal::time::MicroSeconds::from_ticks(
+            (((current.ticks() as i64 - old.ticks() as i64) + timer_period.ticks() as i64)
+                % timer_period.ticks() as i64) as u32,
+        );
+
+        // Finally, if the lights time update interval has passed, update the time for the lights.
+        // This is only done periodically to avoid the difference rounding to zero.
+        if diff > lights_time_update_interval {
+            old = current;
+            led_toggle_counter = led_toggle_counter + diff;
+        }
+        // Toggle the builtin led to indicate we lock up or panic.
+        if led_toggle_counter > stm32f1xx_hal::time::ms(50) {
+            led_toggle_counter = stm32f1xx_hal::time::MicroSeconds::from_ticks(0);
+            led.toggle();
+        }
 
         let mut buf = [0u8; 64];
 

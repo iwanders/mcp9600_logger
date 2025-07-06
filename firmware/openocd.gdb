@@ -40,9 +40,9 @@ load
 #step
 
 # Use continue to just run the program and keep the debugger attached.
-#continue
+continue
 
 
 # Use these commands to detach the debugger after flash, it requires the detach lines in openocd.cfg.
-detach
-quit
+#detach
+#quit
