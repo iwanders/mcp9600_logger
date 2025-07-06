@@ -40,6 +40,7 @@ use embedded_graphics::{
 use ssd1306::{I2CDisplayInterface, Ssd1306, prelude::*};
 
 pub mod mcp9600;
+pub mod util;
 
 pub fn main() -> ! {
     // Get access to the core peripherals from the cortex-m crate
@@ -71,10 +72,11 @@ pub fn main() -> ! {
     // in order to configure the port. For pins 0-7, crl should be passed instead.
     let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
     led.set_high();
-    loop {}
+    //loop {}
     // Configure the syst timer to trigger an update every second
     /**/
-    let timer = Timer::syst(cp.SYST, &rcc.clocks).counter_us();
+    let mut timer = Timer::syst(cp.SYST, &rcc.clocks).counter_us();
+    timer.start(stm32f1xx_hal::time::us(100)).unwrap();
 
     // counter_ms: Can wait from 2 ms to 65 sec for 16-bit timer
     // counter_us: Can wait from 2 μs to 65 ms for 16-bit timer
@@ -148,16 +150,6 @@ pub fn main() -> ! {
     delay(rcc.clocks.sysclk().raw() / 100);
 
     let mut mcp = mcp9600::TemperatureSensorDriver::new(i2c, mcp9600::ADAFRUIT_MCP9600_ADDR);
-
-    let devid = mcp.read_device_id();
-    /*
-    hprintln!("device id: {:?}", devid);
-    hprintln!(
-        "read_sensor_configuration: {:?}",
-        mcp.read_sensor_configuration()
-    );
-    hprintln!("device id: {:?}", devid);
-    hprintln!("read_hot_junction: {:?}", mcp.read_hot_junction());*/
 
     // And the lcd;
     //
@@ -241,7 +233,10 @@ pub fn main() -> ! {
 
         match serial.read(&mut buf) {
             Ok(count) if count > 0 => {
-                led.set_low(); // Turn on
+                use crate::sprintln;
+                sprintln!(serial, "{}, {}", my_timer.now(), timer.now());
+                led.toggle();
+                //led.set_low(); // Turn on
                 // Echo back in upper case
                 for c in buf[0..count].iter_mut() {
                     if 0x61 <= *c && *c <= 0x7a {
@@ -262,6 +257,6 @@ pub fn main() -> ! {
             _ => {}
         }
 
-        led.set_high(); // Turn off
+        //led.set_high(); // Turn off
     }
 }
