@@ -135,13 +135,14 @@ pub fn main() -> ! {
     let mut mcp = mcp9600::TemperatureSensorDriver::new(i2c, mcp9600::ADAFRUIT_MCP9600_ADDR);
 
     let devid = mcp.read_device_id();
+    /*
     hprintln!("device id: {:?}", devid);
     hprintln!(
         "read_sensor_configuration: {:?}",
         mcp.read_sensor_configuration()
     );
     hprintln!("device id: {:?}", devid);
-    hprintln!("read_hot_junction: {:?}", mcp.read_hot_junction());
+    hprintln!("read_hot_junction: {:?}", mcp.read_hot_junction());*/
 
     // And the lcd;
     //
@@ -195,7 +196,7 @@ pub fn main() -> ! {
     display.flush().unwrap();
 
     loop {
-        hprintln!("hj: {:?}", mcp.read_hot_junction());
+        //hprintln!("hj: {:?}", mcp.read_hot_junction());
         if !usb_dev.poll(&mut [&mut serial]) {
             continue;
         }
@@ -206,7 +207,6 @@ pub fn main() -> ! {
         match serial.read(&mut buf) {
             Ok(count) if count > 0 => {
                 led.set_low(); // Turn on
-                hprintln!("got data");
                 // Echo back in upper case
                 for c in buf[0..count].iter_mut() {
                     if 0x61 <= *c && *c <= 0x7a {
