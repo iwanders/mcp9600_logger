@@ -231,6 +231,7 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "cortex-m-semihosting",
+ "display-interface",
  "embedded-graphics",
  "embedded-hal 1.0.0",
  "nb 1.1.0",

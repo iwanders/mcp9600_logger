@@ -21,6 +21,15 @@ impl StackString {
     pub fn as_slice(&self) -> &[u8] {
         &self.buffer[0..self.size]
     }
+    pub fn as_str(&self) -> Result<&str, core::str::Utf8Error> {
+        core::str::from_utf8(self.as_slice())
+    }
+
+    pub fn from_format(fm: core::fmt::Arguments<'_>) -> Result<Self, core::fmt::Error> {
+        let mut v: crate::util::StackString = Default::default();
+        core::fmt::write(&mut v, fm)?;
+        Ok(v)
+    }
 }
 
 impl Default for StackString {

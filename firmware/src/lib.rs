@@ -28,21 +28,17 @@ use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
 use stm32f1xx_hal::i2c::{BlockingI2c, DutyCycle, Mode};
 
-use embedded_graphics::{
-    mono_font::{MonoTextStyleBuilder, ascii::FONT_6X10, ascii::FONT_9X15_BOLD, ascii::FONT_10X20},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::{Baseline, Text},
-};
-
 use ssd1306::{I2CDisplayInterface, Ssd1306, prelude::*};
 
 pub mod clock;
+pub mod display;
 pub mod mcp9600;
 pub mod util;
 use clock::ElapsedMillis;
 
 pub fn main() -> ! {
+    // ------------------------------------------------------
+    // Oscillators & peripheral setup.
     // Get access to the core peripherals from the cortex-m crate
     let mut cp = cortex_m::Peripherals::take().unwrap();
     // Get access to the device specific peripherals from the peripheral access crate
@@ -66,6 +62,8 @@ pub fn main() -> ! {
 
     assert!(rcc.clocks.usbclk_valid());
 
+    // ------------------------------------------------------
+    // Setup on board led, and clock for measuring time.
     // Acquire the GPIOC peripheral
     let mut gpioc = dp.GPIOC.split(&mut rcc);
     // Configure gpio C pin 13 as a push-pull output. The `crh` register is passed to the function
@@ -75,14 +73,15 @@ pub fn main() -> ! {
     //loop {}
     // Configure the syst timer to trigger an update every second
     /**/
-    let mut timer = Timer::syst(cp.SYST, &rcc.clocks).counter_us();
-    timer.start(stm32f1xx_hal::time::us(100)).unwrap();
+    //let mut timer = Timer::syst(cp.SYST, &rcc.clocks).counter_us();
+    //timer.start(stm32f1xx_hal::time::us(100)).unwrap();
 
+    // Setup our milliseconds clock & measurement interval timer.
     clock::setup_ms_clock(dp.TIM2, &mut rcc);
-    let mut led_elapsed = ElapsedMillis::new();
+    let mut elapsed = ElapsedMillis::new();
 
-    //---
-    //
+    // ------------------------------------------------------
+    //  Setup USB & CDC
     let mut gpioa = dp.GPIOA.split(&mut rcc);
 
     // BluePill board has a pull-up resistor on the D+ line.
@@ -102,7 +101,6 @@ pub fn main() -> ! {
     let usb_bus = UsbBus::new(usb);
 
     let mut serial = SerialPort::new(&usb_bus);
-    // ---
 
     let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
         .device_class(USB_CLASS_CDC)
@@ -113,6 +111,8 @@ pub fn main() -> ! {
         .unwrap()
         .build();
 
+    // ------------------------------------------------------
+    // Setup i2c for temperature sensor
     led.set_high();
 
     let mut afio = dp.AFIO.constrain(&mut rcc);
@@ -141,6 +141,7 @@ pub fn main() -> ! {
 
     let mut mcp = mcp9600::TemperatureSensorDriver::new(i2c, mcp9600::ADAFRUIT_MCP9600_ADDR);
 
+    // ------------------------------------------------------
     // And the lcd;
     //
 
@@ -163,38 +164,18 @@ pub fn main() -> ! {
             1000,
         );
     let interface = I2CDisplayInterface::new(i2c2);
-    let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
-        .into_buffered_graphics_mode();
-    display.init().unwrap();
+    let mut disp = display::Display::new(interface);
+    if !disp.init() {
+        sprintln!(serial, "# disp init failed.");
+    }
 
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_6X10)
-        .text_color(BinaryColor::On)
-        .build();
-
-    let text_style_big = MonoTextStyleBuilder::new()
-        .font(&FONT_10X20)
-        .text_color(BinaryColor::On)
-        .build();
-
-    Text::with_baseline("Hello world!", Point::zero(), text_style, Baseline::Top)
-        .draw(&mut display)
-        .unwrap();
-
-    Text::with_baseline(
-        "Hello Krispin!",
-        Point::new(0, 48),
-        text_style_big,
-        Baseline::Top,
-    )
-    .draw(&mut display)
-    .unwrap();
-
-    display.flush().unwrap();
+    {
+        *disp.contents_mut() = display::Contents::test_contents();
+    }
 
     loop {
-        if led_elapsed >= stm32f1xx_hal::time::ms(10) {
-            //sprintln!(serial, "{:?}, {}", led_elapsed, clock::millis());
+        if elapsed >= stm32f1xx_hal::time::ms(10) {
+            //sprintln!(serial, "{:?}, {}", elapsed, clock::millis());
             let s = mcp.read_status();
             if let Ok(v) = s {
                 //sprintln!(serial, "{}, {:?}", clock::millis(), v.conversion_complete);
@@ -206,7 +187,7 @@ pub fn main() -> ! {
                     let _ = mcp.clear_status();
                 }
             }
-            led_elapsed.reset();
+            elapsed.reset();
             led.toggle();
         }
 
@@ -216,6 +197,26 @@ pub fn main() -> ! {
         }
 
         let mut buf = [0u8; 64];
+        match serial.read(&mut buf) {
+            Ok(count) => {
+                {
+                    *disp.contents_mut() = display::Contents::test_contents();
+                }
+                elapsed.reset();
+
+                disp.update();
+                sprintln!(serial, "{:?}", elapsed);
+                {
+                    *disp.contents_mut() = Default::default();
+                }
+                elapsed.reset();
+
+                disp.update();
+                sprintln!(serial, "{:?}", elapsed);
+            }
+            _ => {}
+        }
+        /*
 
         match serial.read(&mut buf) {
             Ok(count) if count > 0 => {
@@ -242,7 +243,7 @@ pub fn main() -> ! {
             }
             _ => {}
         }
-
+        */
         //led.set_high(); // Turn off
     }
 }
