@@ -193,13 +193,17 @@ pub fn main() -> ! {
     display.flush().unwrap();
 
     loop {
-        if led_elapsed >= stm32f1xx_hal::time::ms(50) {
+        if led_elapsed >= stm32f1xx_hal::time::ms(10) {
             //sprintln!(serial, "{:?}, {}", led_elapsed, clock::millis());
             let s = mcp.read_status();
             if let Ok(v) = s {
-                sprintln!(serial, "{}, {:?}", clock::millis(), v.conversion_complete);
+                //sprintln!(serial, "{}, {:?}", clock::millis(), v.conversion_complete);
                 if v.conversion_complete {
-                    mcp.clear_status();
+                    if let Ok(hot) = mcp.read_hot_junction() {
+                        let v = hot.as_f32();
+                        sprintln!(serial, "{}, {:.4}", clock::millis(), v);
+                    }
+                    let _ = mcp.clear_status();
                 }
             }
             led_elapsed.reset();
