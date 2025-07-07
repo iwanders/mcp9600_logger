@@ -170,14 +170,15 @@ pub fn main() -> ! {
         sprintln!(serial, "# disp init failed.");
     }
 
-    {
-        *disp.contents_mut() = display::Contents::test_contents();
-    }
-    disp.update().unwrap();
+    disp.update(&display::Contents::test_contents()).unwrap();
+
+    let mut contents: display::Contents = display::Contents::default();
+
+    let mut measurement_buffer: [display::Contents; 4] = Default::default();
+    let mut measurement_index = 0;
 
     loop {
-        let mut print_update = false;
-        if elapsed >= stm32f1xx_hal::time::ms(200) {
+        if elapsed >= stm32f1xx_hal::time::ms(50) {
             //sprintln!(serial, "{:?}, {}", elapsed, clock::millis());
             let s = mcp.read_status();
             if let Ok(v) = s {
@@ -185,22 +186,42 @@ pub fn main() -> ! {
                 if v.conversion_complete {
                     if let Ok(hot) = mcp.read_hot_junction() {
                         let v = hot.as_f32();
-                        sprintln!(serial, "{}, {:.4}", clock::millis(), v);
+                        // And update the conents in the display.
+                        contents.temperature = v;
+                        contents.time = clock::millis();
+
+                        // Update the averaging buffer.
+                        measurement_buffer[measurement_index] = contents;
+                        measurement_index = (measurement_index + 1) % measurement_buffer.len();
+
+                        let old_index = (measurement_index + 1) % measurement_buffer.len();
+                        let dt = contents.time - measurement_buffer[old_index].time;
+                        let dtemp =
+                            contents.temperature - measurement_buffer[old_index].temperature;
+                        let change = if dt == 0 {
+                            0.0
+                        } else {
+                            dtemp / (dt as f32 / 1000.0)
+                        };
+                        contents.temp_change = change;
+                        sprintln!(serial, "{}, {:.4}", clock::millis(), v,);
+
+                        if let Err(e) = disp.update(&contents) {
+                            sprintln!(serial, "# disp update: {:?}", e);
+                        }
                     }
                     let _ = mcp.clear_status();
                 }
+            } else {
+                sprintln!(serial, "# status failed {}, {:?}", clock::millis(), s);
             }
             elapsed.reset();
             led.toggle();
-            print_update = true;
+            //print_update = true;
         }
 
-        let update_elapsed = ElapsedMillis::new();
         if let Err(e) = disp.update_partial() {
             sprintln!(serial, "# update failed: {:?}", e);
-        }
-        if print_update {
-            sprintln!(serial, "# update duration: {:?}", update_elapsed);
         }
 
         // This returns true if the serial port has data available for reading.
@@ -208,6 +229,7 @@ pub fn main() -> ! {
             continue;
         }
 
+        /*
         let mut buf = [0u8; 64];
         match serial.read(&mut buf) {
             Ok(count) => {
@@ -218,17 +240,18 @@ pub fn main() -> ! {
                 if buf[0] == 97 {
                     *disp.contents_mut() = display::Contents::test_contents();
                     disp.update().unwrap();
-                    disp.update_target_fill(true).unwrap();
+                    //disp.update_target_fill(true).unwrap();
                 }
                 // b
                 if buf[0] == 98 {
                     *disp.contents_mut() = Default::default();
                     disp.update().unwrap();
-                    disp.update_target_fill(false).unwrap();
+                    //disp.update_target_fill(false).unwrap();
                 }
             }
             _ => {}
         }
+        */
         /*
 
         match serial.read(&mut buf) {

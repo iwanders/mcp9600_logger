@@ -31,6 +31,11 @@ impl StackString {
         Ok(v)
     }
 }
+impl PartialEq for StackString {
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
 
 impl Default for StackString {
     fn default() -> Self {

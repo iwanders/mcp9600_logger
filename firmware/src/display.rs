@@ -69,8 +69,8 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
         &mut self.contents
     }
 
-    pub fn update(&mut self) -> Result<(), display_interface::DisplayError> {
-        self.buffer.clear_buffer();
+    pub fn update(&mut self, contents: &Contents) -> Result<(), display_interface::DisplayError> {
+        //self.buffer.clear_buffer();
         let text_style = MonoTextStyleBuilder::new()
             .font(&FONT_5X7)
             .text_color(BinaryColor::On)
@@ -82,13 +82,11 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
             .build();
 
         let text_style_big = MonoTextStyleBuilder::new()
-            //.font(&FONT_9X15_BOLD)
             .font(&FONT_8X13_BOLD)
             .text_color(BinaryColor::On)
             .build();
 
         let text_style_big_off = MonoTextStyleBuilder::new()
-            //.font(&FONT_9X15_BOLD)
             .font(&FONT_8X13_BOLD)
             .text_color(BinaryColor::Off)
             .build();
@@ -133,7 +131,20 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
         };
 
         for r in [render_temp, render_change, render_time] {
-            if let Ok(v) = (r.content)(&self.contents) {
+            let old_res = (r.content)(&self.old_contents);
+            let new_res = (r.content)(&contents);
+            if old_res == new_res {
+                continue;
+            }
+
+            if let Ok(v) = old_res {
+                if let Ok(s) = v.as_str() {
+                    Text::with_baseline(s, r.position, *r.style_off, Baseline::Top)
+                        .draw(&mut self.buffer)
+                        .unwrap();
+                }
+            }
+            if let Ok(v) = new_res {
                 if let Ok(s) = v.as_str() {
                     Text::with_baseline(s, r.position, *r.style, Baseline::Top)
                         .draw(&mut self.buffer)
@@ -141,8 +152,7 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
                 }
             }
         }
-        //self.old_contents = self.contents;
-        //self.buffer.flush(&mut self.display)?;
+        self.old_contents = *contents;
         Ok(())
     }
 
@@ -158,8 +168,6 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
     }
 
     pub fn update_partial(&mut self) -> Result<(), display_interface::DisplayError> {
-        self.buffer.flush_partial(&mut self.display);
-        //
-        Ok(())
+        self.buffer.flush_partial(&mut self.display)
     }
 }
