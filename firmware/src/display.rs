@@ -1,8 +1,9 @@
 use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::mono_font::ascii::FONT_9X15;
-use embedded_graphics::mono_font::iso_8859_9::FONT_5X7;
+use embedded_graphics::mono_font::iso_8859_9::{FONT_5X7, FONT_8X13_BOLD};
+use embedded_graphics::mono_font::iso_8859_16::FONT_8X13;
 
-use ssd1306::mode::BufferedGraphicsMode;
+use ssd1306::mode::{BasicMode, BufferedGraphicsMode};
 use ssd1306::size::DisplaySize128x32;
 use ssd1306::{I2CDisplayInterface, Ssd1306, prelude::*};
 
@@ -13,7 +14,7 @@ use embedded_graphics::{
     text::{Baseline, Text},
 };
 
-#[derive(Default)]
+#[derive(Default, Copy, Clone)]
 pub struct Contents {
     /// The current temperature
     pub temperature: f32,
@@ -25,7 +26,7 @@ pub struct Contents {
 impl Contents {
     pub fn test_contents() -> Self {
         Self {
-            temperature: -1337.1234,
+            temperature: -1337.0000,
             temp_change: 123.123,
             time: 3600 * 1000 * 10,
         }
@@ -34,9 +35,13 @@ impl Contents {
 
 type Size = ssd1306::size::DisplaySize128x32;
 
+use crate::display_buffer::DeltaBuffer;
+
 pub struct Display<DI: WriteOnlyDataCommand> {
-    display: Ssd1306<DI, Size, BufferedGraphicsMode<Size>>,
+    display: Ssd1306<DI, Size, BasicMode>,
+    buffer: DeltaBuffer<Size>,
     contents: Contents,
+    old_contents: Contents,
 }
 impl<DI: WriteOnlyDataCommand> Display<DI> {
     pub fn new(disp_int: DI) -> Self
@@ -44,15 +49,16 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
         DI: WriteOnlyDataCommand + Sized,
     {
         Self {
-            display: Ssd1306::new(disp_int, Size {}, DisplayRotation::Rotate0)
-                .into_buffered_graphics_mode(),
+            display: Ssd1306::new(disp_int, Size {}, DisplayRotation::Rotate0),
+            buffer: DeltaBuffer::<Size>::new(),
+            old_contents: Default::default(),
             contents: Default::default(),
         }
     }
     pub fn init(&mut self) -> bool {
         if let Ok(()) = self.display.init() {
-            self.display.clear_buffer();
-            if let Ok(()) = self.display.flush() {
+            self.buffer.clear_buffer();
+            if let Ok(()) = self.buffer.flush(&mut self.display) {
                 return true;
             }
         }
@@ -64,27 +70,38 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
     }
 
     pub fn update(&mut self) -> Result<(), display_interface::DisplayError> {
-        self.display
-            .clear(embedded_graphics::pixelcolor::BinaryColor::Off)?;
-
         let text_style = MonoTextStyleBuilder::new()
             .font(&FONT_5X7)
             .text_color(BinaryColor::On)
             .build();
 
+        let text_style_off = MonoTextStyleBuilder::new()
+            .font(&FONT_5X7)
+            .text_color(BinaryColor::Off)
+            .build();
+
         let text_style_big = MonoTextStyleBuilder::new()
-            .font(&FONT_9X15_BOLD)
+            //.font(&FONT_9X15_BOLD)
+            .font(&FONT_8X13_BOLD)
             .text_color(BinaryColor::On)
+            .build();
+
+        let text_style_big_off = MonoTextStyleBuilder::new()
+            //.font(&FONT_9X15_BOLD)
+            .font(&FONT_8X13_BOLD)
+            .text_color(BinaryColor::Off)
             .build();
 
         struct RenderSpec<'a> {
             position: Point,
             style: &'a MonoTextStyle<'a, BinaryColor>,
+            style_off: &'a MonoTextStyle<'a, BinaryColor>,
             content: fn(&Contents) -> Result<crate::util::StackString, core::fmt::Error>,
         }
         let render_temp = RenderSpec {
             position: Point::zero(),
             style: &text_style_big,
+            style_off: &text_style_big_off,
             content: |c: &Contents| {
                 crate::util::StackString::from_format(format_args!("{: >10.4} C", c.temperature))
             },
@@ -93,6 +110,7 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
         let render_change = RenderSpec {
             position: Point::new(0, text_style_big.font.character_size.height as i32 + 2),
             style: &text_style,
+            style_off: &text_style_off,
             content: |c: &Contents| {
                 crate::util::StackString::from_format(format_args!("dC/dt {: >9.2}", c.temp_change))
             },
@@ -104,6 +122,7 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
                 render_change.position.y + text_style.font.character_size.height as i32 + 2,
             ),
             style: &text_style,
+            style_off: &text_style_off,
             content: |c: &Contents| {
                 crate::util::StackString::from_format(format_args!(
                     "t:  {: >12.3} s",
@@ -112,16 +131,25 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
             },
         };
 
-        for r in [render_temp, render_change, render_time] {
+        for r in [render_temp] {
+            if let Ok(v) = (r.content)(&self.old_contents) {
+                if let Ok(s) = v.as_str() {
+                    Text::with_baseline(s, r.position, *r.style_off, Baseline::Top)
+                        .draw(&mut self.buffer)
+                        .unwrap();
+                }
+            }
             if let Ok(v) = (r.content)(&self.contents) {
                 if let Ok(s) = v.as_str() {
                     Text::with_baseline(s, r.position, *r.style, Baseline::Top)
-                        .draw(&mut self.display)
+                        .draw(&mut self.buffer)
                         .unwrap();
                 }
             }
         }
+        self.old_contents = self.contents;
+        self.buffer.flush(&mut self.display)?;
 
-        self.display.flush()
+        Ok(())
     }
 }

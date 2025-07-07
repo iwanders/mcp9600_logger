@@ -32,6 +32,7 @@ use ssd1306::{I2CDisplayInterface, Ssd1306, prelude::*};
 
 pub mod clock;
 pub mod display;
+pub mod display_buffer;
 pub mod mcp9600;
 pub mod util;
 use clock::ElapsedMillis;

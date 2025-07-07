@@ -18,6 +18,7 @@ usbd-serial = "0.2.2"
 
 cortex-m-semihosting = "0.5.0"
 
+#ssd1306 = { path = "/tmp/ssd1306" }
 ssd1306 = "0.10.0"
 embedded-graphics = "0.8.0"
 display-interface = "0.5.0"
