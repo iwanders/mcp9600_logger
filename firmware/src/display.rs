@@ -70,6 +70,7 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
     }
 
     pub fn update(&mut self) -> Result<(), display_interface::DisplayError> {
+        self.buffer.clear_buffer();
         let text_style = MonoTextStyleBuilder::new()
             .font(&FONT_5X7)
             .text_color(BinaryColor::On)
@@ -131,14 +132,7 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
             },
         };
 
-        for r in [render_temp] {
-            if let Ok(v) = (r.content)(&self.old_contents) {
-                if let Ok(s) = v.as_str() {
-                    Text::with_baseline(s, r.position, *r.style_off, Baseline::Top)
-                        .draw(&mut self.buffer)
-                        .unwrap();
-                }
-            }
+        for r in [render_temp, render_change, render_time] {
             if let Ok(v) = (r.content)(&self.contents) {
                 if let Ok(s) = v.as_str() {
                     Text::with_baseline(s, r.position, *r.style, Baseline::Top)
@@ -147,9 +141,25 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
                 }
             }
         }
-        self.old_contents = self.contents;
-        self.buffer.flush(&mut self.display)?;
+        //self.old_contents = self.contents;
+        //self.buffer.flush(&mut self.display)?;
+        Ok(())
+    }
 
+    pub fn update_target_fill(
+        &mut self,
+        state: bool,
+    ) -> Result<(), display_interface::DisplayError> {
+        self.buffer.clear(if state {
+            BinaryColor::On
+        } else {
+            BinaryColor::Off
+        })
+    }
+
+    pub fn update_partial(&mut self) -> Result<(), display_interface::DisplayError> {
+        self.buffer.flush_partial(&mut self.display);
+        //
         Ok(())
     }
 }

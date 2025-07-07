@@ -1,3 +1,5 @@
+use core::ops::DerefMut;
+
 use ssd1306::{
     Ssd1306,
     command::AddrMode,
@@ -28,7 +30,12 @@ where
 {
     dimensions: (u8, u8),
     buffer: <SIZE as DisplaySize>::Buffer,
+    /// Buffer to track which pixels are dirty.
     delta: <SIZE as DeltaSize>::Buffer,
+    /// The blocks (1 by 8 pixels) to send for each flush_partial.
+    blocks_per_update: u8,
+    /// The current update position index, advanced with flush_partial.
+    update_position: usize,
 }
 
 impl<SIZE> DeltaBuffer<SIZE>
@@ -41,7 +48,13 @@ where
             dimensions: (SIZE::WIDTH, SIZE::HEIGHT),
             buffer: NewZeroed::new_zeroed(),
             delta: NewZeroed::new_zeroed(),
+            blocks_per_update: 10,
+            update_position: 0,
         }
+    }
+
+    pub fn set_blocks_per_update(&mut self, v: u8) {
+        self.blocks_per_update = v;
     }
 
     fn clear_impl(&mut self, value: bool) {
@@ -89,6 +102,7 @@ where
     {
         display.set_draw_area((0, 0), self.dimensions)
     }
+
     /// Write out data to a display.
     ///
     /// This only updates the parts of the display that have changed since the last flush.
@@ -100,21 +114,7 @@ where
         DI: WriteOnlyDataCommand,
     {
         let (width, height) = self.dimensions;
-        /*
-        self.buffer.as_mut().fill(0);
-        self.buffer.as_mut()[0] = 0b1000_1001; // 8 pixels from top left to x:0, y:7
-        //self.buffer.as_mut()[1] = 0xFF; // 8 pixels on second column, first section.
-        self.buffer.as_mut()[5] = 0b1010_1010;
 
-        display.set_draw_area((4, 8), (SIZE::WIDTH, SIZE::HEIGHT))?;
-        display.bounded_draw(
-            &self.buffer.as_mut()[0..],
-            self.dimensions.0 as usize,
-            (4, 8),
-            (SIZE::WIDTH - 4, SIZE::HEIGHT - 8),
-        )?;
-        return Ok(());*/
-        // Iterate over the delta vertically?
         for y in (0..(height - 8)).step_by(8) {
             //let mut dirty: bool = false;
             for x in (0..width) {
@@ -137,6 +137,52 @@ where
             }
         }
 
+        Ok(())
+    }
+
+    /// Flush a partial number of blocks.
+    pub fn flush_partial<DI>(
+        &mut self,
+        display: &mut Ssd1306<DI, SIZE, BasicMode>,
+    ) -> Result<(), DisplayError>
+    where
+        DI: WriteOnlyDataCommand,
+    {
+        let (width, height) = self.dimensions;
+
+        // blocks_per_update
+        let mut send_blocks = 0;
+        for y in (0..(height)).step_by(8) {
+            //let mut dirty: bool = false;
+            for x in (0..width) {
+                let (idx, bit) = {
+                    let idx = ((y as usize) / 8 * SIZE::WIDTH as usize) + (x as usize);
+                    let bit = y % 8;
+
+                    (idx, bit)
+                };
+
+                if idx < self.update_position {
+                    continue;
+                }
+
+                let dirty = self.delta.as_mut()[idx] != 0;
+                self.delta.as_mut()[idx] = 0;
+
+                if dirty {
+                    let start = (x, y);
+                    let end = (x + 1, y | 7);
+                    display.set_draw_area(start, end)?;
+                    display.bounded_draw(&self.buffer.as_mut(), width as usize, start, end)?;
+                    send_blocks += 1;
+                    self.update_position = idx;
+                    if send_blocks >= self.blocks_per_update {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        self.update_position = 0;
         Ok(())
     }
 }
@@ -189,7 +235,11 @@ where
                 let idx = ((y as usize) / 8 * SIZE::WIDTH as usize) + (x as usize);
                 let bit = y % 8;
                 let byte = &mut buffer[idx];
+                let previous = *byte;
                 *byte = *byte & !(1 << bit) | (value << bit);
+                if previous != *byte {
+                    self.delta.as_mut()[idx] = 1;
+                }
             }
         }
 

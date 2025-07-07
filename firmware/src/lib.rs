@@ -173,9 +173,11 @@ pub fn main() -> ! {
     {
         *disp.contents_mut() = display::Contents::test_contents();
     }
+    disp.update().unwrap();
 
     loop {
-        if elapsed >= stm32f1xx_hal::time::ms(10) {
+        let mut print_update = false;
+        if elapsed >= stm32f1xx_hal::time::ms(200) {
             //sprintln!(serial, "{:?}, {}", elapsed, clock::millis());
             let s = mcp.read_status();
             if let Ok(v) = s {
@@ -190,6 +192,15 @@ pub fn main() -> ! {
             }
             elapsed.reset();
             led.toggle();
+            print_update = true;
+        }
+
+        let update_elapsed = ElapsedMillis::new();
+        if let Err(e) = disp.update_partial() {
+            sprintln!(serial, "# update failed: {:?}", e);
+        }
+        if print_update {
+            sprintln!(serial, "# update duration: {:?}", update_elapsed);
         }
 
         // This returns true if the serial port has data available for reading.
@@ -200,20 +211,21 @@ pub fn main() -> ! {
         let mut buf = [0u8; 64];
         match serial.read(&mut buf) {
             Ok(count) => {
-                {
+                if (count == 0) {
+                    continue;
+                }
+                // a
+                if buf[0] == 97 {
                     *disp.contents_mut() = display::Contents::test_contents();
+                    disp.update().unwrap();
+                    disp.update_target_fill(true).unwrap();
                 }
-                elapsed.reset();
-
-                disp.update();
-                sprintln!(serial, "{:?}", elapsed);
-                {
+                // b
+                if buf[0] == 98 {
                     *disp.contents_mut() = Default::default();
+                    disp.update().unwrap();
+                    disp.update_target_fill(false).unwrap();
                 }
-                elapsed.reset();
-
-                disp.update();
-                sprintln!(serial, "{:?}", elapsed);
             }
             _ => {}
         }
