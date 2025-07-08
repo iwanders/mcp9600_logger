@@ -3,7 +3,7 @@ pub use core::fmt::Write;
 // This is 100% copied from my syscall project, it's probably a bit over engineered for this.
 
 /// Max length of our stack-string.
-const STACK_STRING_SIZE: usize = 256;
+const STACK_STRING_SIZE: usize = 128;
 
 /// Object to be able to write a string that's stored onto the stack.
 pub struct StackString {
@@ -12,6 +12,9 @@ pub struct StackString {
 }
 impl StackString {
     pub const STACK_STRING_SIZE: usize = STACK_STRING_SIZE;
+    pub const fn capacity() -> usize {
+        STACK_STRING_SIZE
+    }
     pub fn as_ptr(&self) -> *const u8 {
         self.buffer.as_ptr() as *const u8
     }
@@ -20,6 +23,10 @@ impl StackString {
     }
     pub fn as_slice(&self) -> &[u8] {
         &self.buffer[0..self.size]
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [u8] {
+        &mut self.buffer[0..self.size]
     }
     pub fn as_str(&self) -> Result<&str, core::str::Utf8Error> {
         core::str::from_utf8(self.as_slice())
@@ -30,7 +37,26 @@ impl StackString {
         core::fmt::write(&mut v, fm)?;
         Ok(v)
     }
+    pub fn from_str(input: &str) -> Self {
+        let mut v: crate::util::StackString = Default::default();
+        let input_slice = input.as_bytes();
+        let length = input_slice.len().min(Self::capacity());
+        v.buffer[0..length].copy_from_slice(&input_slice[0..length]);
+        v.size = length;
+        v
+    }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_string_from_str() {
+        let foo_str = StackString::from_str("foo");
+        assert_eq!(foo_str.as_slice(), "foo".as_bytes());
+    }
+}
+
 impl PartialEq for StackString {
     fn eq(&self, other: &Self) -> bool {
         self.as_slice() == other.as_slice()

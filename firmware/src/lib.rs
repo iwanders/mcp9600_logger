@@ -174,7 +174,12 @@ pub fn main() -> ! {
 
     let mut contents: display::Contents = display::Contents::default();
 
-    let mut measurement_buffer: [display::Contents; 4] = Default::default();
+    #[derive(Copy, Clone, Default)]
+    struct Measurement {
+        time: u32,
+        temperature: f32,
+    }
+    let mut measurement_buffer: [Measurement; 32] = Default::default();
     let mut measurement_index = 0;
 
     loop {
@@ -189,13 +194,16 @@ pub fn main() -> ! {
                         // And update the conents in the display.
                         contents.temperature = v;
                         contents.time = clock::millis();
+                        contents.status = display::InternalStatus::Good;
 
                         // Update the averaging buffer.
-                        measurement_buffer[measurement_index] = contents;
+                        measurement_buffer[measurement_index].time = contents.time;
+                        measurement_buffer[measurement_index].temperature = contents.temperature;
                         measurement_index = (measurement_index + 1) % measurement_buffer.len();
 
                         let old_index = (measurement_index + 1) % measurement_buffer.len();
                         let dt = contents.time - measurement_buffer[old_index].time;
+                        sprintln!(serial, "dt for 32 {} ", dt);
                         let dtemp =
                             contents.temperature - measurement_buffer[old_index].temperature;
                         let change = if dt == 0 {
@@ -209,11 +217,20 @@ pub fn main() -> ! {
                         if let Err(e) = disp.update(&contents) {
                             sprintln!(serial, "# disp update: {:?}", e);
                         }
+                    } else {
+                        let _ = mcp.clear_status();
+                        contents.status = display::InternalStatus::Error;
+                        if let Err(e) = disp.update(&contents) {
+                            sprintln!(serial, "# disp update: {:?}", e);
+                        }
                     }
-                    let _ = mcp.clear_status();
                 }
             } else {
                 sprintln!(serial, "# status failed {}, {:?}", clock::millis(), s);
+                contents.status = display::InternalStatus::Error;
+                if let Err(e) = disp.update(&contents) {
+                    sprintln!(serial, "# disp update: {:?}", e);
+                }
             }
             elapsed.reset();
             led.toggle();

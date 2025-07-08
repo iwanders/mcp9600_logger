@@ -15,6 +15,13 @@ use embedded_graphics::{
 };
 
 #[derive(Default, Copy, Clone)]
+pub enum InternalStatus {
+    Error,
+    #[default]
+    Good,
+}
+
+#[derive(Default, Copy, Clone)]
 pub struct Contents {
     /// The current temperature
     pub temperature: f32,
@@ -22,13 +29,16 @@ pub struct Contents {
     pub temp_change: f32,
     /// The current time.
     pub time: u32,
+    /// The internal status (reading success etc)
+    pub status: InternalStatus,
 }
 impl Contents {
     pub fn test_contents() -> Self {
         Self {
             temperature: -1337.0000,
-            temp_change: 123.123,
+            temp_change: -23.123,
             time: 3600 * 1000 * 10,
+            status: InternalStatus::Error,
         }
     }
 }
@@ -102,7 +112,7 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
             style: &text_style_big,
             style_off: &text_style_big_off,
             content: |c: &Contents| {
-                crate::util::StackString::from_format(format_args!("{: >10.4} C", c.temperature))
+                crate::util::StackString::from_format(format_args!("T: {: >11.4} C", c.temperature))
             },
         };
 
@@ -111,11 +121,29 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
             style: &text_style,
             style_off: &text_style_off,
             content: |c: &Contents| {
-                crate::util::StackString::from_format(format_args!("dC/dt {: >9.2}", c.temp_change))
+                crate::util::StackString::from_format(format_args!(
+                    "dT/9s {: >5.2} dT/2s {: >5.2}",
+                    c.temp_change, c.temp_change,
+                ))
             },
         };
 
         let render_time = RenderSpec {
+            position: Point::new(
+                30,
+                render_change.position.y + text_style.font.character_size.height as i32 + 2,
+            ),
+            style: &text_style,
+            style_off: &text_style_off,
+            content: |c: &Contents| {
+                crate::util::StackString::from_format(format_args!(
+                    "t:  {: >10.3} s",
+                    c.time as f32 / 1000.0
+                ))
+            },
+        };
+
+        let render_status = RenderSpec {
             position: Point::new(
                 0,
                 render_change.position.y + text_style.font.character_size.height as i32 + 2,
@@ -123,14 +151,14 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
             style: &text_style,
             style_off: &text_style_off,
             content: |c: &Contents| {
-                crate::util::StackString::from_format(format_args!(
-                    "t:  {: >12.3} s",
-                    c.time as f32 / 1000.0
-                ))
+                Ok(crate::util::StackString::from_str(match c.status {
+                    InternalStatus::Good => "ok",
+                    InternalStatus::Error => "fail",
+                }))
             },
         };
 
-        for r in [render_temp, render_change, render_time] {
+        for r in [render_temp, render_change, render_time, render_status] {
             let old_res = (r.content)(&self.old_contents);
             let new_res = (r.content)(&contents);
             if old_res == new_res {
