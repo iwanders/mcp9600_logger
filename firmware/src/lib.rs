@@ -174,13 +174,7 @@ pub fn main() -> ! {
 
     let mut contents: display::Contents = display::Contents::default();
 
-    #[derive(Copy, Clone, Default)]
-    struct Measurement {
-        time: u32,
-        temperature: f32,
-    }
-    let mut measurement_buffer: [Measurement; 32] = Default::default();
-    let mut measurement_index = 0;
+    let mut average: display::Average = Default::default();
 
     loop {
         if elapsed >= stm32f1xx_hal::time::ms(50) {
@@ -197,21 +191,9 @@ pub fn main() -> ! {
                         contents.status = display::InternalStatus::Good;
 
                         // Update the averaging buffer.
-                        measurement_buffer[measurement_index].time = contents.time;
-                        measurement_buffer[measurement_index].temperature = contents.temperature;
-                        measurement_index = (measurement_index + 1) % measurement_buffer.len();
-
-                        let old_index = (measurement_index + 1) % measurement_buffer.len();
-                        let dt = contents.time - measurement_buffer[old_index].time;
-                        sprintln!(serial, "dt for 32 {} ", dt);
-                        let dtemp =
-                            contents.temperature - measurement_buffer[old_index].temperature;
-                        let change = if dt == 0 {
-                            0.0
-                        } else {
-                            dtemp / (dt as f32 / 1000.0)
-                        };
-                        contents.temp_change = change;
+                        average.add_measurement(contents.time, contents.temperature);
+                        let short_average = average.get_average(2000);
+                        contents.temp_change = short_average.to_rate();
                         sprintln!(serial, "{}, {:.4}", clock::millis(), v,);
 
                         if let Err(e) = disp.update(&contents) {
@@ -245,58 +227,5 @@ pub fn main() -> ! {
         if !usb_dev.poll(&mut [&mut serial]) {
             continue;
         }
-
-        /*
-        let mut buf = [0u8; 64];
-        match serial.read(&mut buf) {
-            Ok(count) => {
-                if (count == 0) {
-                    continue;
-                }
-                // a
-                if buf[0] == 97 {
-                    *disp.contents_mut() = display::Contents::test_contents();
-                    disp.update().unwrap();
-                    //disp.update_target_fill(true).unwrap();
-                }
-                // b
-                if buf[0] == 98 {
-                    *disp.contents_mut() = Default::default();
-                    disp.update().unwrap();
-                    //disp.update_target_fill(false).unwrap();
-                }
-            }
-            _ => {}
-        }
-        */
-        /*
-
-        match serial.read(&mut buf) {
-            Ok(count) if count > 0 => {
-                use crate::sprintln;
-                sprintln!(serial, "{}", clock::millis());
-                //led.toggle();
-                //led.set_low(); // Turn on
-                // Echo back in upper case
-                for c in buf[0..count].iter_mut() {
-                    if 0x61 <= *c && *c <= 0x7a {
-                        *c &= !0x20;
-                    }
-                }
-
-                let mut write_offset = 0;
-                while write_offset < count {
-                    match serial.write(&buf[write_offset..count]) {
-                        Ok(len) if len > 0 => {
-                            write_offset += len;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
-        }
-        */
-        //led.set_high(); // Turn off
     }
 }

@@ -117,8 +117,8 @@ where
 
         for y in (0..(height - 8)).step_by(8) {
             //let mut dirty: bool = false;
-            for x in (0..width) {
-                let (idx, bit) = {
+            for x in 0..width {
+                let (idx, _bit) = {
                     let idx = ((y as usize) / 8 * SIZE::WIDTH as usize) + (x as usize);
                     let bit = y % 8;
 
@@ -153,9 +153,8 @@ where
         // blocks_per_update
         let mut send_blocks = 0;
         for y in (0..(height)).step_by(8) {
-            //let mut dirty: bool = false;
-            for x in (0..width) {
-                let (idx, bit) = {
+            for x in 0..width {
+                let (idx, _bit) = {
                     let idx = ((y as usize) / 8 * SIZE::WIDTH as usize) + (x as usize);
                     let bit = y % 8;
 
@@ -190,7 +189,7 @@ where
 use embedded_graphics::{
     Pixel,
     draw_target::DrawTarget,
-    geometry::{AnchorX, AnchorY, Dimensions, OriginDimensions, Size},
+    geometry::{Dimensions, OriginDimensions, Size},
     pixelcolor::BinaryColor,
     primitives::Rectangle,
 };

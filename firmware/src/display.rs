@@ -1,3 +1,5 @@
+use core::u32;
+
 use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::mono_font::ascii::FONT_9X15;
 use embedded_graphics::mono_font::iso_8859_9::{FONT_5X7, FONT_8X13_BOLD};
@@ -39,6 +41,153 @@ impl Contents {
             temp_change: -23.123,
             time: 3600 * 1000 * 10,
             status: InternalStatus::Error,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
+pub struct Measurement {
+    pub time: u32,
+    pub temperature: f32,
+}
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
+pub struct Average {
+    buffer: [Measurement; 32],
+    index: usize,
+}
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct AverageIter<'a> {
+    average: &'a Average,
+    our_index: usize,
+}
+impl<'a> Iterator for AverageIter<'a> {
+    type Item = Measurement;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next_index = self
+            .our_index
+            .wrapping_sub(1)
+            .rem_euclid(self.average.buffer.len());
+        if next_index == self.average.index {
+            None
+        } else {
+            self.our_index = next_index;
+            self.average.buffer.get(next_index).copied()
+        }
+    }
+}
+#[derive(Copy, Clone, Default, Debug, PartialEq)]
+pub struct Change {
+    duration: u32,
+    temperature_delta: f32,
+}
+impl Change {
+    pub fn to_rate(&self) -> f32 {
+        if self.duration != 0 {
+            self.temperature_delta / (self.duration as f32 / 1000.0)
+        } else {
+            0.0
+        }
+    }
+    pub fn duration(&self) -> u32 {
+        self.duration
+    }
+    pub fn from_measurement(now: Measurement, old: Measurement) -> Self {
+        let duration = now.time - old.time;
+        let temperature_delta = now.temperature - old.temperature;
+        Change {
+            duration,
+            temperature_delta,
+        }
+    }
+}
+
+impl Average {
+    pub fn add_measurement(&mut self, time: u32, temperature: f32) {
+        self.buffer[self.index].time = time;
+        self.buffer[self.index].temperature = temperature;
+        self.index = (self.index + 1) % self.buffer.len();
+    }
+    pub fn get_average(&mut self, dt: u32) -> Change {
+        let mut iter = self.iter();
+        let now = if let Some(first) = iter.next() {
+            first
+        } else {
+            return Default::default();
+        };
+        let mut longest: Change = Default::default();
+        for m in iter {
+            longest = Change::from_measurement(now, m);
+
+            if longest.duration() < dt {
+                continue; // keep advancing
+            } else {
+                return longest;
+            }
+        }
+        longest
+    }
+    /// Iterate over measurements, with least old first.
+    pub fn iter(&self) -> AverageIter {
+        AverageIter {
+            average: self,
+            our_index: self.index,
+        }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_average_ring() {
+        let mut avg = Average::default();
+        for i in 0..avg.buffer.len() {
+            avg.add_measurement(i as u32, i as f32);
+        }
+        println!("avg: {avg:?}");
+        let mut iter = avg.iter();
+        for i in 1..avg.buffer.len() + 3 {
+            if i < avg.buffer.len() {
+                assert_eq!(
+                    iter.next(),
+                    Some(Measurement {
+                        time: (avg.buffer.len() - i) as u32,
+                        temperature: (avg.buffer.len() - i) as f32
+                    })
+                );
+            } else {
+                assert_eq!(iter.next(), None,);
+            }
+        }
+
+        let change = avg.get_average(3);
+        assert_eq!(change.duration(), 3);
+        assert_eq!(change.to_rate(), ((3.0) / (3.0 / 1000.0)));
+
+        let mut avg = Average::default();
+        avg.add_measurement(0, 0.0);
+        avg.add_measurement(0, 0.0);
+        avg.add_measurement(0, 0.0);
+        assert_eq!(avg.index, 3);
+        for i in 0..avg.buffer.len() {
+            avg.add_measurement(i as u32, i as f32);
+        }
+        let change = avg.get_average(3);
+        assert_eq!(change.duration(), 3);
+        assert_eq!(change.to_rate(), ((3.0) / (3.0 / 1000.0)));
+        let mut iter = avg.iter();
+        for i in 1..avg.buffer.len() + 3 {
+            if i < avg.buffer.len() {
+                assert_eq!(
+                    iter.next(),
+                    Some(Measurement {
+                        time: (avg.buffer.len() - i) as u32,
+                        temperature: (avg.buffer.len() - i) as f32
+                    })
+                );
+            } else {
+                assert_eq!(iter.next(), None,);
+            }
         }
     }
 }
