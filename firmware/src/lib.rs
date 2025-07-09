@@ -192,13 +192,15 @@ pub fn main() -> ! {
 
                         // Update the averaging buffer.
                         average.add_measurement(contents.time, contents.temperature);
-                        let short_average = average.get_average(2000);
-                        contents.temp_change = short_average.to_rate();
+                        contents.avg_short = average.get_average(2000);
+                        contents.avg_long = average.get_average(9000);
+
                         sprintln!(serial, "{}, {:.4}", clock::millis(), v,);
 
                         if let Err(e) = disp.update(&contents) {
                             sprintln!(serial, "# disp update: {:?}", e);
                         }
+                        let _ = mcp.clear_status();
                     } else {
                         let _ = mcp.clear_status();
                         contents.status = display::InternalStatus::Error;

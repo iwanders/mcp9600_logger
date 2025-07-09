@@ -28,7 +28,9 @@ pub struct Contents {
     /// The current temperature
     pub temperature: f32,
     /// The temperature change in dC/s
-    pub temp_change: f32,
+    pub avg_short: Change,
+    /// The temperature change in dC/s
+    pub avg_long: Change,
     /// The current time.
     pub time: u32,
     /// The internal status (reading success etc)
@@ -38,17 +40,29 @@ impl Contents {
     pub fn test_contents() -> Self {
         Self {
             temperature: -1337.0000,
-            temp_change: -23.123,
+            avg_short: Change {
+                duration: 2000,
+                temperature_delta: 21.347,
+            },
+            avg_long: Change {
+                duration: 9000,
+                temperature_delta: -41.347,
+            },
             time: 3600 * 1000 * 10,
             status: InternalStatus::Error,
         }
     }
 }
 
-#[derive(Copy, Clone, Default, Debug, PartialEq)]
+#[derive(Copy, Clone, Default, PartialEq)]
 pub struct Measurement {
     pub time: u32,
     pub temperature: f32,
+}
+impl core::fmt::Debug for Measurement {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!("{:?}", (self.time, self.temperature)))
+    }
 }
 #[derive(Copy, Clone, Default, Debug, PartialEq)]
 pub struct Average {
@@ -89,8 +103,11 @@ impl Change {
             0.0
         }
     }
-    pub fn duration(&self) -> u32 {
+    pub fn duration_ms(&self) -> u32 {
         self.duration
+    }
+    pub fn duration_s(&self) -> u32 {
+        self.duration / 1000
     }
     pub fn from_measurement(now: Measurement, old: Measurement) -> Self {
         let duration = now.time - old.time;
@@ -119,7 +136,7 @@ impl Average {
         for m in iter {
             longest = Change::from_measurement(now, m);
 
-            if longest.duration() < dt {
+            if longest.duration_ms() < dt {
                 continue; // keep advancing
             } else {
                 return longest;
@@ -133,6 +150,10 @@ impl Average {
             average: self,
             our_index: self.index,
         }
+    }
+
+    pub fn buffer(&self) -> &[Measurement] {
+        &self.buffer
     }
 }
 #[cfg(test)]
@@ -161,7 +182,7 @@ mod tests {
         }
 
         let change = avg.get_average(3);
-        assert_eq!(change.duration(), 3);
+        assert_eq!(change.duration_ms(), 3);
         assert_eq!(change.to_rate(), ((3.0) / (3.0 / 1000.0)));
 
         let mut avg = Average::default();
@@ -173,7 +194,7 @@ mod tests {
             avg.add_measurement(i as u32, i as f32);
         }
         let change = avg.get_average(3);
-        assert_eq!(change.duration(), 3);
+        assert_eq!(change.duration_ms(), 3);
         assert_eq!(change.to_rate(), ((3.0) / (3.0 / 1000.0)));
         let mut iter = avg.iter();
         for i in 1..avg.buffer.len() + 3 {
@@ -271,8 +292,11 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
             style_off: &text_style_off,
             content: |c: &Contents| {
                 crate::util::StackString::from_format(format_args!(
-                    "dT/9s {: >5.2} dT/2s {: >5.2}",
-                    c.temp_change, c.temp_change,
+                    "dT/{}s {: >5.2} dT/{}s {: >5.2}",
+                    c.avg_long.duration_s(),
+                    c.avg_long.to_rate(),
+                    c.avg_short.duration_s(),
+                    c.avg_short.to_rate(),
                 ))
             },
         };

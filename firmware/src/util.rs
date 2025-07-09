@@ -3,7 +3,7 @@ pub use core::fmt::Write;
 // This is 100% copied from my syscall project, it's probably a bit over engineered for this.
 
 /// Max length of our stack-string.
-const STACK_STRING_SIZE: usize = 128;
+const STACK_STRING_SIZE: usize = 64;
 
 /// Object to be able to write a string that's stored onto the stack.
 pub struct StackString {
