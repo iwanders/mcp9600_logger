@@ -383,6 +383,7 @@ mod more_tests {
     use super::*;
     #[test]
     fn test_render_image() {
+        use embedded_graphics::pixelcolor::Rgb888;
         use embedded_graphics::prelude::*;
         use embedded_graphics_simulator::{
             BinaryColorTheme, OutputSettingsBuilder, SimulatorDisplay,
@@ -393,8 +394,12 @@ mod more_tests {
             DisplaySize128x32::HEIGHT.into(),
         ));
         let output_settings = OutputSettingsBuilder::new()
-            .scale(2)
-            .theme(BinaryColorTheme::OledBlue)
+            .pixel_spacing(1)
+            .scale(4)
+            .theme(BinaryColorTheme::Custom {
+                color_off: Rgb888::new(0, 0, 0),
+                color_on: Rgb888::new(0, 220, 255),
+            })
             .build();
         let mut old_contents: Contents = Contents::default();
         let mut new_contents: Contents = Contents::test_contents();
@@ -404,7 +409,9 @@ mod more_tests {
             &mut display,
         )
         .unwrap();
-        let output_image = display.to_rgb_output_image(&output_settings);
+
+        let mut output_image = display.to_rgb_output_image(&output_settings);
+        let mut buffer = output_image.as_image_buffer();
 
         output_image
             .save_png("/tmp/mcp9600_logger_render.png")
