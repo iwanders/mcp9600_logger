@@ -403,6 +403,16 @@ mod more_tests {
             .build();
         let mut old_contents: Contents = Contents::default();
         let mut new_contents: Contents = Contents::test_contents();
+        if true {
+            new_contents.avg_long.duration = 8000;
+            new_contents.avg_long.temperature_delta = 2.74 * 8.0;
+            new_contents.avg_short.duration = 2000;
+            new_contents.avg_short.temperature_delta = -0.05 * 2.0;
+            new_contents.temperature = 24.6875;
+            new_contents.time = 8843;
+            old_contents.status = InternalStatus::Error;
+            new_contents.status = InternalStatus::Good;
+        }
         Display::<ssd1306::test_helpers::StubInterface>::content_render(
             &old_contents,
             &new_contents,
