@@ -156,6 +156,7 @@ impl Average {
         &self.buffer
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,8 +250,11 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
         &mut self.contents
     }
 
-    pub fn update(&mut self, contents: &Contents) -> Result<(), display_interface::DisplayError> {
-        //self.buffer.clear_buffer();
+    fn content_render<DT: embedded_graphics::draw_target::DrawTarget<Color = BinaryColor>>(
+        old_contents: &Contents,
+        new_contents: &Contents,
+        target: &mut DT,
+    ) -> Result<(), DT::Error> {
         let text_style = MonoTextStyleBuilder::new()
             .font(&FONT_5X7)
             .text_color(BinaryColor::On)
@@ -332,27 +336,28 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
         };
 
         for r in [render_temp, render_change, render_time, render_status] {
-            let old_res = (r.content)(&self.old_contents);
-            let new_res = (r.content)(&contents);
+            let old_res = (r.content)(old_contents);
+            let new_res = (r.content)(new_contents);
             if old_res == new_res {
                 continue;
             }
 
             if let Ok(v) = old_res {
                 if let Ok(s) = v.as_str() {
-                    Text::with_baseline(s, r.position, *r.style_off, Baseline::Top)
-                        .draw(&mut self.buffer)
-                        .unwrap();
+                    Text::with_baseline(s, r.position, *r.style_off, Baseline::Top).draw(target)?;
                 }
             }
             if let Ok(v) = new_res {
                 if let Ok(s) = v.as_str() {
-                    Text::with_baseline(s, r.position, *r.style, Baseline::Top)
-                        .draw(&mut self.buffer)
-                        .unwrap();
+                    Text::with_baseline(s, r.position, *r.style, Baseline::Top).draw(target)?;
                 }
             }
         }
+        Ok(())
+    }
+
+    pub fn update(&mut self, contents: &Contents) -> Result<(), display_interface::DisplayError> {
+        Self::content_render(&self.old_contents, contents, &mut self.buffer)?;
         self.old_contents = *contents;
         Ok(())
     }
@@ -370,5 +375,39 @@ impl<DI: WriteOnlyDataCommand> Display<DI> {
 
     pub fn update_partial(&mut self) -> Result<(), display_interface::DisplayError> {
         self.buffer.flush_partial(&mut self.display)
+    }
+}
+
+#[cfg(test)]
+mod more_tests {
+    use super::*;
+    #[test]
+    fn test_render_image() {
+        use embedded_graphics::prelude::*;
+        use embedded_graphics_simulator::{
+            BinaryColorTheme, OutputSettingsBuilder, SimulatorDisplay,
+        };
+
+        let mut display = SimulatorDisplay::<BinaryColor>::new(Size::new(
+            DisplaySize128x32::WIDTH.into(),
+            DisplaySize128x32::HEIGHT.into(),
+        ));
+        let output_settings = OutputSettingsBuilder::new()
+            .scale(2)
+            .theme(BinaryColorTheme::OledBlue)
+            .build();
+        let mut old_contents: Contents = Contents::default();
+        let mut new_contents: Contents = Contents::test_contents();
+        Display::<ssd1306::test_helpers::StubInterface>::content_render(
+            &old_contents,
+            &new_contents,
+            &mut display,
+        )
+        .unwrap();
+        let output_image = display.to_rgb_output_image(&output_settings);
+
+        output_image
+            .save_png("/tmp/mcp9600_logger_render.png")
+            .unwrap();
     }
 }
