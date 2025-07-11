@@ -112,7 +112,6 @@ if __name__ == "__main__":
 
     if args.heat:
         ts = np.array(load_heat(args.heat, d))
-        print(ts)
         plt.plot(ts[:,0] + args.heat_shift, ts[:, 1] * tmax, "r")
 
     if args.reflow_profile:
