@@ -21,14 +21,49 @@ def t(a):
         return float(a.split())
     return m * 60.0 + s
 
-def load_heat(fname):
-    entries = []
+def load_heat(fname, temps):
+    time_entries = []
+    interval_entries = []
     with open(fname) as f:
         for k in f.readlines():
             if "," in k:
                 stamp, value = [a.strip() for a in k.strip().split(",")]
-                entries.append((t(stamp), float(value)))
-    return entries
+                time_entries.append((t(stamp), float(value)))
+            if ":" in k:
+                interval, value = [a.strip() for a in k.strip().split(":")]
+                start,end = [float(a.strip()) for a in interval.split("-")]
+                interval_entries.append((start, end, float(value)))
+    
+    if time_entries:
+        return add_temps(time_entries)
+
+    if interval_entries:
+        temp_entries = []
+        interval_index = 0
+        temp_entries.append((temps[0][0], 0))
+        for ts, temp in temps:
+            if interval_index >= len(interval_entries):
+                break;
+            lower, upper, value = interval_entries[interval_index]
+            if lower < upper:
+                # rising
+                if lower < temp:
+                    # add previous point.
+                    temp_entries.append((ts, temp_entries[-1][1]))
+                    # add new point.
+                    temp_entries.append((ts, value))
+                    interval_index += 1
+            else:
+                # lowering
+                if temp < upper:
+                    # add previous point.
+                    temp_entries.append((ts, temp_entries[-1][1]))
+                    # add new point.
+                    temp_entries.append((ts, value))
+                    interval_index += 1
+                    
+                    
+        return np.array(temp_entries)
 
 
 
@@ -56,7 +91,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("log", help="Temperature log from the logger, from cat /dev/ttyACM* >> log.txt ")
 
-    parser.add_argument("--heat", default=None, help="Heating log, 'm:s, 0..1\n..' ")
+    parser.add_argument("--heat", default=None, help="Heating log, 'm:s, 0..1\n...' OR '0-60: 1\n60-100:0\n..\n240-0:0' ")
     parser.add_argument("--heat-shift", default=0.0, type=float, help="Shift heating by this time.")
 
     parser.add_argument("--reflow-profile", default=False, action="store_true", help="Plot TS391AX50 reflow profile")
@@ -76,7 +111,8 @@ if __name__ == "__main__":
     tmax = np.max(d[:, 1])
 
     if args.heat:
-        ts = np.array(add_temps(load_heat(args.heat)))
+        ts = np.array(load_heat(args.heat, d))
+        print(ts)
         plt.plot(ts[:,0] + args.heat_shift, ts[:, 1] * tmax, "r")
 
     if args.reflow_profile:
